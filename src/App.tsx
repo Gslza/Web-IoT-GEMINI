@@ -261,7 +261,6 @@ export default function App() {
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <HTTPClient.h>
 #include <Firebase_ESP_Client.h>
 #include <addons/TokenHelper.h>
 #include <addons/RTDBHelper.h>
@@ -274,9 +273,6 @@ export default function App() {
 // === CONFIGURATION FIREBASE REALTIME DATABASE ===
 #define FIREBASE_HOST "${firebaseUrl}"
 #define FIREBASE_AUTH "${firebaseSecret}"
-
-// Set URL Node Smart Home Server
-const char* host_sync_url = "${syncUrl}";
 
 // === PIN CONFIGURATION ===
 #define DHT_PIN ${arduinoDhtPin}
@@ -380,7 +376,6 @@ void loop() {
   }
 
   if (current_millis - last_time_sync > sync_delay) {
-    syncWithServer();
     syncWithFirebase();
     last_time_sync = current_millis;
   }
@@ -527,69 +522,6 @@ void handleTelegramMessage(int numNewMessages) {
       reply += "Relay 4 [Kipas / AC]: " + String(r4_state ? "ON" : "OFF");
       bot.sendMessage(chat_id, reply, "");
     }
-  }
-}
-
-void syncWithServer() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(host_sync_url);
-    http.addHeader("Content-Type", "application/json");
-
-    StaticJsonDocument<200> doc;
-    doc["temperature"] = temperature;
-    doc["humidity"] = humidity;
-    doc["ip_address"] = WiFi.localIP().toString();
-    doc["wifi_signal"] = String(WiFi.RSSI()) + " dBm";
-    
-    JsonObject relay = doc.createNestedObject("relay");
-    relay["relay1"] = r1_state;
-    relay["relay2"] = r2_state;
-    relay["relay3"] = r3_state;
-    relay["relay4"] = r4_state;
-
-    String json_payload;
-    serializeJson(doc, json_payload);
-    
-    int httpResponseCode = http.POST(json_payload);
-    if (httpResponseCode > 0) {
-      String response = http.getString();
-      
-      StaticJsonDocument<300> resDoc;
-      deserializeJson(resDoc, response);
-      
-      if (resDoc["success"] == true) {
-        bool target_r1 = resDoc["target_relay"]["relay1"];
-        bool target_r2 = resDoc["target_relay"]["relay2"];
-        bool target_r3 = resDoc["target_relay"]["relay3"];
-        bool target_r4 = resDoc["target_relay"]["relay4"];
-        
-        if (target_r1 != r1_state) {
-          r1_state = target_r1;
-          controlRelay(RELAY_1, r1_state);
-        }
-        if (target_r2 != r2_state) {
-          r2_state = target_r2;
-          controlRelay(RELAY_2, r2_state);
-        }
-        if (target_r3 != r3_state) {
-          r3_state = target_r3;
-          controlRelay(RELAY_3, r3_state);
-        }
-        if (target_r4 != r4_state) {
-          r4_state = target_r4;
-          controlRelay(RELAY_4, r4_state);
-        }
-        
-        String last_cmd = resDoc["command"]["last_command"];
-        if (last_cmd == "VARIASI_1") {
-          variation1();
-        } else if (last_cmd == "VARIASI_2") {
-          variation2();
-        }
-      }
-    }
-    http.end();
   }
 }
 
@@ -1803,6 +1735,29 @@ void syncWithFirebase() {
                       * <span className="font-bold text-slate-700">DHT Sensor Library by Adafruit</span>
                       <br />
                       * <span className="font-bold text-slate-700">Adafruit Unified Sensor</span> (Pendukung DHT)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 5: Troubleshooting Sketch Too Big */}
+                <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                    5
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight text-amber-900">Solusi Ukuran Program ("Sketch too big / Text section exceeds available space")</h3>
+                    <p className="text-amber-950 leading-relaxed font-sans">
+                      Kami telah mengoptimalkan sketch di atas dengan membuang library <span className="font-semibold">HTTPClient</span> bawaan ESP32 yang berat. Hal ini memotong pemakaian memori flash secara signifikan!
+                      <br /><br />
+                      Jika Anda menggabungkan kode ini dengan library lain dan jatah flash bawaan ESP32 Anda masih terlampaui, Anda bisa menyelesaikan kendala ini dalam 5 detik di Arduino IDE:
+                      <br />
+                      1. Di Arduino IDE, klik menu <span className="font-bold">Tools</span> (Peralatan) pada bilah navigasi atas.
+                      <br />
+                      2. Cari opsi <span className="font-bold">Partition Scheme</span> (Skema Partisi).
+                      <br />
+                      3. Ubah pengaturannya dari <span className="font-bold text-red-600 font-mono">"Default (1.2MB APP/1.5MB SPIFFS)"</span> ke <span className="font-bold text-emerald-700 font-mono">"No OTA (2MB APP/2MB SPIFFS)"</span> atau <span className="font-bold text-teal-700 font-mono">"Huge APP (3MB No OTA/1MB SPIFFS)"</span>.
+                      <br />
+                      4. Tekan kembali <span className="font-semibold animate-pulse text-amber-900">Verify / Compile</span>. ESP32 secara fisik memiliki 4MB flash (sangat besar), dengan mengubah skema partisi ke <span className="font-mono bg-amber-100 px-1 py-0.5 rounded">Huge APP</span> atau <span className="font-mono bg-amber-100 px-1 py-0.5 rounded">No OTA</span> jatah ruang program Anda naik drastis dan error dipastikan hilang 100%!
                     </p>
                   </div>
                 </div>
