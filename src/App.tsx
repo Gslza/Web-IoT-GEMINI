@@ -27,7 +27,12 @@ import {
   Activity,
   CheckCircle,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  Copy,
+  Download,
+  Code,
+  Check,
+  Edit3
 } from "lucide-react";
 import { 
   ResponsiveContainer, 
@@ -92,6 +97,22 @@ export default function App() {
   const [studentName, setStudentName] = useState<string>("Putri Naira Salsabila");
   const [studentNIM, setStudentNIM] = useState<string>("21051204088");
   const [studentClass, setStudentClass] = useState<string>("S1 Teknik Informatika B");
+
+  // Arduino Custom Sketch Variables
+  const [arduinoSketchName, setArduinoSketchName] = useState<string>("smart_home_telegram_web_esp32.ino");
+  const [arduinoSsid, setArduinoSsid] = useState<string>("Home_WiFi_SiriIoT");
+  const [arduinoPassword, setArduinoPassword] = useState<string>("SangatRahasia123");
+  const [arduinoBotToken, setArduinoBotToken] = useState<string>("810512040:AAH-xG_gD7pTrb296Z_RPT1_aA7");
+  const [arduinoChatId, setArduinoChatId] = useState<string>("51203088");
+  const [firebaseUrl, setFirebaseUrl] = useState<string>("https://siri-smart-home-rtdb.firebaseio.com/");
+  const [firebaseSecret, setFirebaseSecret] = useState<string>("AIzaSyA8890xXTyZ_SecretTokenExample");
+  const [arduinoDhtPin, setArduinoDhtPin] = useState<string>("4");
+  const [arduinoDhtType, setArduinoDhtType] = useState<string>("DHT11");
+  const [arduinoR1Pin, setArduinoR1Pin] = useState<string>("16");
+  const [arduinoR2Pin, setArduinoR2Pin] = useState<string>("17");
+  const [arduinoR3Pin, setArduinoR3Pin] = useState<string>("18");
+  const [arduinoR4Pin, setArduinoR4Pin] = useState<string>("19");
+  const [copied, setCopied] = useState<boolean>(false);
 
   // Fetch current state from REST API
   const fetchState = async () => {
@@ -222,6 +243,421 @@ export default function App() {
   // Print quiz report call
   const printReport = () => {
     window.print();
+  };
+
+  const syncUrl = typeof window !== "undefined" 
+    ? `${window.location.origin}/api/esp32/sync` 
+    : "https://siri-iot-dashboard.example/api/esp32/sync";
+
+  const generatedArduinoCode = `/*
+ * Smart Home IoT 4 Relay Telegram Bot and Web Dashboard
+ * File: ${arduinoSketchName}
+ * Board: ESP32 Dev Module
+ * Author: ${studentName} - NIM ${studentNIM}
+ */
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+#include <HTTPClient.h>
+#include <Firebase_ESP_Client.h>
+#include <addons/TokenHelper.h>
+#include <addons/RTDBHelper.h>
+
+#define WIFI_SSID "${arduinoSsid}"
+#define WIFI_PASSWORD "${arduinoPassword}"
+#define BOT_TOKEN "${arduinoBotToken}"
+#define CHAT_ID "${arduinoChatId}"
+
+// === CONFIGURATION FIREBASE REALTIME DATABASE ===
+#define FIREBASE_HOST "${firebaseUrl}"
+#define FIREBASE_AUTH "${firebaseSecret}"
+
+// Set URL Node Smart Home Server
+const char* host_sync_url = "${syncUrl}";
+
+// === PIN CONFIGURATION ===
+#define DHT_PIN ${arduinoDhtPin}
+#define DHT_TYPE ${arduinoDhtType}
+
+#define RELAY_1 ${arduinoR1Pin}
+#define RELAY_2 ${arduinoR2Pin}
+#define RELAY_3 ${arduinoR3Pin}
+#define RELAY_4 ${arduinoR4Pin}
+
+// Relay active LOW logic
+#define RELAY_ON LOW
+#define RELAY_OFF HIGH
+
+DHT dht(DHT_PIN, DHT_TYPE);
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOT_TOKEN, client);
+
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+bool signupOK = false;
+
+unsigned long last_time_reading = 0;
+const unsigned long dht_delay = 5000; // Baca sensor tiap 5 detik
+
+unsigned long last_time_bot = 0;
+const unsigned long bot_delay = 1000; // Polling pesan Telegram tiap 1 detik
+
+unsigned long last_time_sync = 0;
+const unsigned long sync_delay = 3000; // Sinkron server & Firebase tiap 3 detik
+
+float temperature = 0.0;
+float humidity = 0.0;
+
+bool r1_state = false;
+bool r2_state = false;
+bool r3_state = false;
+bool r4_state = false;
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  
+  pinMode(RELAY_1, OUTPUT);
+  pinMode(RELAY_2, OUTPUT);
+  pinMode(RELAY_3, OUTPUT);
+  pinMode(RELAY_4, OUTPUT);
+  
+  allOff();
+  
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Menghubungkan ke Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("Wi-Fi Terkoneksi!");
+  Serial.print("Alamat IP ESP32: ");
+  Serial.println(WiFi.localIP());
+
+  client.setInsecure(); // Bypass cert checks demi latency tinggi
+  
+  bot.sendMessage(CHAT_ID, "Sistem Smart Home Siri-IoT ESP32 Aktif Terkoneksi!", "");
+
+  Serial.println("Mengonfigurasi Firebase Realtime Database...");
+  config.database_url = FIREBASE_HOST;
+  config.signer.tokens.legacy_token = FIREBASE_AUTH;
+
+  // Lakukan inisiasi library Firebase ESP Client
+  Firebase.reconnectWiFi(true);
+  Firebase.begin(&config, &auth);
+  
+  Serial.println("Sistem IoT Siap Berkomunikasi!");
+}
+
+void loop() {
+  unsigned long current_millis = millis();
+ 
+  if (current_millis - last_time_reading > dht_delay) {
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+    
+    if (!isnan(t) && !isnan(h)) {
+      temperature = t;
+      humidity = h;
+      Serial.printf("Suhu: %.2fC, Lembab: %.2f%%\\\\n", temperature, humidity);
+    }
+    last_time_reading = current_millis;
+  }
+
+  if (current_millis - last_time_bot > bot_delay) {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (numNewMessages) {
+      handleTelegramMessage(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    last_time_bot = current_millis;
+  }
+
+  if (current_millis - last_time_sync > sync_delay) {
+    syncWithServer();
+    syncWithFirebase();
+    last_time_sync = current_millis;
+  }
+}
+
+void controlRelay(int pin, bool state) {
+  digitalWrite(pin, state ? RELAY_ON : RELAY_OFF);
+}
+
+void allOff() {
+  stateRelayAll(false, false, false, false);
+  bot.sendMessage(CHAT_ID, "Semua relay berhasil dinonaktifkan.", "");
+}
+
+void stateRelayAll(bool s1, bool s2, bool s3, bool s4) {
+  r1_state = s1;
+  r2_state = s2;
+  r3_state = s3;
+  r4_state = s4;
+  
+  controlRelay(RELAY_1, r1_state);
+  controlRelay(RELAY_2, r2_state);
+  controlRelay(RELAY_3, r3_state);
+  controlRelay(RELAY_4, r4_state);
+}
+
+void variation1() {
+  Serial.println("Menjalankan variasi 1...");
+  bot.sendMessage(CHAT_ID, "Menyalakan Variasi Jumper 1 (Running LED)...", "");
+  
+  stateRelayAll(true, false, false, false); delay(500);
+  stateRelayAll(false, true, false, false); delay(500);
+  stateRelayAll(false, false, true, false); delay(500);
+  stateRelayAll(false, false, false, true); delay(500);
+  stateRelayAll(false, false, false, false);
+}
+
+void variation2() {
+  Serial.println("Menjalankan variasi 2...");
+  bot.sendMessage(CHAT_ID, "Menyalakan Variasi Jumper 2 (Kedip Kombinasi)...", "");
+  
+  for(int i=0; i<3; i++) {
+    stateRelayAll(true, false, true, false); delay(400);
+    stateRelayAll(false, true, false, true); delay(400);
+  }
+  stateRelayAll(false, false, false, false);
+}
+
+void handleTelegramMessage(int numNewMessages) {
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+    if (chat_id != CHAT_ID) {
+      bot.sendMessage(chat_id, "Akses Smart Home Ditolak! Hubungi @Admin", "");
+      continue;
+    }
+    
+    String text = bot.messages[i].text;
+    text.toLowerCase();
+    
+    Serial.println("Pesan Telegram Diterima: " + text);
+
+    if (text == "/start") {
+      String menu = "=== MENU UTAMA SIRI-IOT ===\\\\n\\\\n";
+      menu += "🔧 RELAY TOGGLES:\\\\n";
+      menu += "/lampu1_on - Nyalakan Lampu Teras\\\\n";
+      menu += "/lampu1_off - Matikan Lampu Teras\\\\n";
+      menu += "/lampu2_on - Nyalakan Lampu Kamar\\\\n";
+      menu += "/lampu2_off - Matikan Lampu Kamar\\\\n";
+      menu += "/lampu3_on - Nyalakan Ruang Tamu\\\\n";
+      menu += "/lampu3_off - Matikan Ruang Tamu\\\\n";
+      menu += "/lampu4_on - Nyalakan Kipas / AC\\\\n";
+      menu += "/lampu4_off - Matikan Kipas / AC\\\\n\\\\n";
+      menu += "🕹 METRICS & PATTERNS:\\\\n";
+      menu += "/sensor - Cek Sensor DHT11\\\\n";
+      menu += "/status - Amati Status All Relay\\\\n";
+      menu += "/all_on - Hidupkan Semua\\\\n";
+      menu += "/all_off - Padamkan Semua\\\\n";
+      menu += "/variasi1 - Jalankan Pola Running\\\\n";
+      menu += "/variasi2 - Jalankan Pola Kombinasi\\\\n";
+      bot.sendMessage(chat_id, menu, "");
+    }
+    else if (text == "/lampu1_on" || text == "nyalakan lampu 1" || text == "lampu 1 hidup") {
+      r1_state = true;
+      controlRelay(RELAY_1, r1_state);
+      bot.sendMessage(chat_id, "Relay 1 (Lampu Teras) AKTIF", "");
+    }
+    else if (text == "/lampu1_off" || text == "matikan lampu 1" || text == "lampu 1 mati") {
+      r1_state = false;
+      controlRelay(RELAY_1, r1_state);
+      bot.sendMessage(chat_id, "Relay 1 (Lampu Teras) NONAKTIF", "");
+    }
+    else if (text == "/lampu2_on" || text == "nyalakan lampu 2" || text == "lampu 2 hidup") {
+      r2_state = true;
+      controlRelay(RELAY_2, r2_state);
+      bot.sendMessage(chat_id, "Relay 2 (Lampu Kamar) AKTIF", "");
+    }
+    else if (text == "/lampu2_off" || text == "matikan lampu 2" || text == "lampu 2 mati") {
+      r2_state = false;
+      controlRelay(RELAY_2, r2_state);
+      bot.sendMessage(chat_id, "Relay 2 (Lampu Kamar) NONAKTIF", "");
+    }
+    else if (text == "/lampu3_on" || text == "nyalakan lampu 3") {
+      r3_state = true;
+      controlRelay(RELAY_3, r3_state);
+      bot.sendMessage(chat_id, "Relay 3 (Lampu Ruang Tamu) AKTIF", "");
+    }
+    else if (text == "/lampu3_off" || text == "matikan lampu 3") {
+      r3_state = false;
+      controlRelay(RELAY_3, r3_state);
+      bot.sendMessage(chat_id, "Relay 3 (Lampu Ruang Tamu) NONAKTIF", "");
+    }
+    else if (text == "/lampu4_on" || text == "nyalakan kipas" || text == "nyalakan ac") {
+      r4_state = true;
+      controlRelay(RELAY_4, r4_state);
+      bot.sendMessage(chat_id, "Relay 4 (Kipas / AC) AKTIF", "");
+    }
+    else if (text == "/lampu4_off" || text == "matikan kipas" || text == "matikan ac") {
+      r4_state = false;
+      controlRelay(RELAY_4, r4_state);
+      bot.sendMessage(chat_id, "Relay 4 (Kipas / AC) NONAKTIF", "");
+    }
+    else if (text == "/all_on" || text == "nyalakan semua lampu") {
+      stateRelayAll(true, true, true, true);
+      bot.sendMessage(chat_id, "Semua Relay dihidupkan.", "");
+    }
+    else if (text == "/all_off" || text == "matikan semua" || text == "matikan lampu") {
+      allOff();
+    }
+    else if (text == "/variasi1" || text == "nyalakan variasi 1") {
+      variation1();
+    }
+    else if (text == "/variasi2" || text == "nyalakan variasi 2") {
+      variation2();
+    }
+    else if (text == "/sensor" || text == "berapa temperatur" || text == "berapa kelembapan") {
+      String reply = "🌡 Suhu: " + String(temperature, 1) + "C\\\\n💧 Kelembaban: " + String(humidity, 1) + "%";
+      bot.sendMessage(chat_id, reply, "");
+    }
+    else if (text == "/status") {
+      String reply = "Status Kelistrikan Rumah:\\\\n";
+      reply += "Relay 1 [Teras Depan]: " + String(r1_state ? "ON" : "OFF") + "\\\\n";
+      reply += "Relay 2 [Kamar Tidur]: " + String(r2_state ? "ON" : "OFF") + "\\\\n";
+      reply += "Relay 3 [Ruang Tamu]: " + String(r3_state ? "ON" : "OFF") + "\\\\n";
+      reply += "Relay 4 [Kipas / AC]: " + String(r4_state ? "ON" : "OFF");
+      bot.sendMessage(chat_id, reply, "");
+    }
+  }
+}
+
+void syncWithServer() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(host_sync_url);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<200> doc;
+    doc["temperature"] = temperature;
+    doc["humidity"] = humidity;
+    doc["ip_address"] = WiFi.localIP().toString();
+    doc["wifi_signal"] = String(WiFi.RSSI()) + " dBm";
+    
+    JsonObject relay = doc.createNestedObject("relay");
+    relay["relay1"] = r1_state;
+    relay["relay2"] = r2_state;
+    relay["relay3"] = r3_state;
+    relay["relay4"] = r4_state;
+
+    String json_payload;
+    serializeJson(doc, json_payload);
+    
+    int httpResponseCode = http.POST(json_payload);
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      
+      StaticJsonDocument<300> resDoc;
+      deserializeJson(resDoc, response);
+      
+      if (resDoc["success"] == true) {
+        bool target_r1 = resDoc["target_relay"]["relay1"];
+        bool target_r2 = resDoc["target_relay"]["relay2"];
+        bool target_r3 = resDoc["target_relay"]["relay3"];
+        bool target_r4 = resDoc["target_relay"]["relay4"];
+        
+        if (target_r1 != r1_state) {
+          r1_state = target_r1;
+          controlRelay(RELAY_1, r1_state);
+        }
+        if (target_r2 != r2_state) {
+          r2_state = target_r2;
+          controlRelay(RELAY_2, r2_state);
+        }
+        if (target_r3 != r3_state) {
+          r3_state = target_r3;
+          controlRelay(RELAY_3, r3_state);
+        }
+        if (target_r4 != r4_state) {
+          r4_state = target_r4;
+          controlRelay(RELAY_4, r4_state);
+        }
+        
+        String last_cmd = resDoc["command"]["last_command"];
+        if (last_cmd == "VARIASI_1") {
+          variation1();
+        } else if (last_cmd == "VARIASI_2") {
+          variation2();
+        }
+      }
+    }
+    http.end();
+  }
+}
+
+void syncWithFirebase() {
+  if (Firebase.ready() && WiFi.status() == WL_CONNECTED) {
+    // 1. Kirim Data Metrik Sensor & Koneksi ke Firebase RTDB
+    Firebase.RTDB.setFloat(&fbdo, "/sensor/temperature", temperature);
+    Firebase.RTDB.setFloat(&fbdo, "/sensor/humidity", humidity);
+    Firebase.RTDB.setInt(&fbdo, "/sensor/rssi", WiFi.RSSI());
+    Firebase.RTDB.setString(&fbdo, "/system/ip", WiFi.localIP().toString());
+
+    Firebase.RTDB.setBool(&fbdo, "/relay/state1", r1_state);
+    Firebase.RTDB.setBool(&fbdo, "/relay/state2", r2_state);
+    Firebase.RTDB.setBool(&fbdo, "/relay/state3", r3_state);
+    Firebase.RTDB.setBool(&fbdo, "/relay/state4", r4_state);
+
+    bool target_val = false;
+    
+    if (Firebase.RTDB.getBool(&fbdo, "/control/relay1")) {
+      target_val = fbdo.to<bool>();
+      if (target_val != r1_state) {
+        r1_state = target_val;
+        controlRelay(RELAY_1, r1_state);
+        Serial.printf("Firebase: Relay 1 diubah ke %s\\\\n", r1_state ? "ON" : "OFF");
+      }
+    }
+    if (Firebase.RTDB.getBool(&fbdo, "/control/relay2")) {
+      target_val = fbdo.to<bool>();
+      if (target_val != r2_state) {
+        r2_state = target_val;
+        controlRelay(RELAY_2, r2_state);
+        Serial.printf("Firebase: Relay 2 diubah ke %s\\\\n", r2_state ? "ON" : "OFF");
+      }
+    }
+    if (Firebase.RTDB.getBool(&fbdo, "/control/relay3")) {
+      target_val = fbdo.to<bool>();
+      if (target_val != r3_state) {
+        r3_state = target_val;
+        controlRelay(RELAY_3, r3_state);
+        Serial.printf("Firebase: Relay 3 diubah ke %s\\\\n", r3_state ? "ON" : "OFF");
+      }
+    }
+    if (Firebase.RTDB.getBool(&fbdo, "/control/relay4")) {
+      target_val = fbdo.to<bool>();
+      if (target_val != r4_state) {
+        r4_state = target_val;
+        controlRelay(RELAY_4, r4_state);
+        Serial.printf("Firebase: Relay 4 diubah ke %s\\\\n", r4_state ? "ON" : "OFF");
+      }
+    }
+  }
+}
+`;
+
+  const downloadArduinoCode = () => {
+    const element = document.createElement("a");
+    const file = new Blob([generatedArduinoCode], { type: "text/plain" });
+    element.href = URL.createObjectURL(file);
+    element.download = arduinoSketchName || "smart_home_telegram_web_esp32.ino";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(generatedArduinoCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -1000,669 +1436,281 @@ export default function App() {
                   </div>
 
                 </div>
-
               </div>
             </div>
           )}
 
-          {/* TAB 5: ACADEMIC QUIZ REPORT PDF */}
+             {/* TAB 5: ARDUINO GEN */}
           {activeTab === "report" && (
             <div id="tab-report-view" className="space-y-6">
               
-              {/* Pre-export editor section */}
-              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-                  <div>
-                    <h3 className="font-black text-sm text-slate-800 uppercase tracking-wider">Identitas Pengaju Laporan Akademis</h3>
-                    <p className="text-xs text-slate-400">Lengkapi formulir di bawah ini untuk mengisi metadata Laporan secara otomatis sebelum diunduh.</p>
-                  </div>
-                  
-                  {/* Action download triggers */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div>
+                  <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                    <Code className="text-blue-600" size={24} />
+                    Arduino IDE C++ Sketch Generator
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Sesuaikan kredensial WiFi, Telegram Bot, dan pemetaan GPIO ESP32 secara dinamis sebelum menyalin kode ke Arduino IDE Anda.
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-2">
                   <button 
-                    onClick={printReport}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-lg flex items-center gap-1.5 cursor-pointer shadow-sm shadow-blue-500/20 active:scale-95 transition-all"
+                    onClick={copyToClipboard}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
                   >
-                    <Printer size={15} />
-                    Cetak / Simpan PDF Laporan A4
+                    {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                    {copied ? "Berhasil Disalin!" : "Salin C++ Code"}
+                  </button>
+                  <button 
+                    onClick={downloadArduinoCode}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white rounded-lg flex items-center gap-1.5 transition-all cursor-pointer shadow-md shadow-blue-500/20 active:scale-95"
+                  >
+                    <Download size={14} />
+                    Unduh File .ino
                   </button>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-widest font-extrabold text-slate-400 block">Nama Mahasiswa:</label>
-                    <input 
-                      type="text" 
-                      value={studentName} 
-                      onChange={(e) => setStudentName(e.target.value)}
-                      className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans" 
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-widest font-extrabold text-slate-400 block">NIM Mahasiswa:</label>
-                    <input 
-                      type="text" 
-                      value={studentNIM} 
-                      onChange={(e) => setStudentNIM(e.target.value)}
-                      className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-semibold" 
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] uppercase tracking-widest font-extrabold text-slate-400 block">Kelas / Prodi:</label>
-                    <input 
-                      type="text" 
-                      value={studentClass} 
-                      onChange={(e) => setStudentClass(e.target.value)}
-                      className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans" 
-                    />
-                  </div>
-                </div>
               </div>
 
-              {/* PDF Sheet Preview */}
-              <div 
-                id="academic-pdf-print-area" 
-                className="bg-white p-8 md:p-12 rounded-2xl border border-slate-200 shadow-lg text-slate-800 leading-relaxed font-sans max-w-4xl mx-auto space-y-6 text-sm relative"
-              >
-                {/* Academic Header section */}
-                <div className="text-center border-b-2 border-slate-800 pb-5 space-y-2 select-none">
-                  <span className="text-xs uppercase tracking-widest font-black text-blue-600 block">LAPORAN KULIAH / TUGAS MANDIRI KAMPUS</span>
-                  <h1 className="text-lg md:text-xl font-bold font-sans tracking-tight text-slate-900 uppercase">
-                    Quis Sistem Smart Home Berbasis IoT Menggunakan ESP32, Telegram Bot, dan Web Dashboard
-                  </h1>
-                  <p className="text-xs text-slate-500 font-mono">Dibuat Menggunakan Siri-IoT Dynamic Engine Pro</p>
-                </div>
-
-                {/* Identity Block */}
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-2 gap-4 text-xs font-mono">
-                  <div>
-                    <p><span className="font-semibold text-slate-400">Penyusun Laporan:</span> {studentName}</p>
-                    <p><span className="font-semibold text-slate-400">NIM Mahasiswa:</span> {studentNIM}</p>
-                  </div>
-                  <div>
-                    <p><span className="font-semibold text-slate-400">Kelas Akademis:</span> {studentClass}</p>
-                    <p><span className="font-semibold text-slate-400">Tanggal Quis:</span> 2026-05-27 (UTC+7)</p>
-                  </div>
-                </div>
-
-                {/* Section 1: Flowchart sistem */}
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="p-1 px-2.5 bg-blue-100 text-blue-800 rounded-md font-mono text-xs">1</span>
-                    Flowchart Alur Sistem (Mermaid)
-                  </h3>
-                  <p className="text-xs text-slate-600 leading-relaxed font-sans">
-                    Flowchart di bawah ini menjelaskan alur mulainya ESP32 menginisiasi koneksi Wi-Fi, melakukan pembacaan sensor DHT11/22 berkala secara non-blocking menggunakan penanda waktu <span className="font-mono">millis()</span>, menerima paket perintah eksternal dari bot telegram atau web panel, hingga mendinginkan atau memanaskan status database.
-                  </p>
+              {/* Grid 2 Columns */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Configuration Panel - Column span 5 */}
+                <div className="col-span-1 lg:col-span-5 space-y-5">
                   
-                  {/* Visual Mermaid Flow Chart */}
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 leading-snug">
-                    <span className="text-[10px] font-bold text-slate-400 block uppercase font-mono">Bagan Alir Logis</span>
-                    <pre className="text-[10px] md:text-xs font-mono text-slate-700 bg-slate-900 text-green-400 p-4 rounded-lg overflow-x-auto text-left leading-tight">
-{`graph TD
-  A[Mulai Boot ESP32] --> B(Koneksi Wi-Fi & Telegram API)
-  B --> C[Baca Sensor Temp & Hum DHT11/22]
-  C --> D{Polling Data Baru?}
-  D -- Telegram --Command--> E[Ubah State Relay Fisik]
-  D -- Web Dashboard POST--> F[Gateway REST API Sync]
-  E --> G[Sindir Notifikasi Telegram]
-  F --> H[ESP32 Response Target Relay]
-  G --> I[Update Telemetri ke Cloud Database]
-  H --> I
-  I --> J(Ulangi Loop)`}
-                    </pre>
-                  </div>
-                </div>
-
-                {/* Section 2: Blok Diagram */}
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="p-1 px-2.5 bg-blue-100 text-blue-800 rounded-md font-mono text-xs">2</span>
-                    Blok Diagram Sistem
-                  </h3>
-                  <p className="text-xs text-slate-600 font-sans">
-                    Diagram blok arsitektur koneksi terdistribusi yang memperlihatkan ESP32 DevKit V1 sebagai pengendali sentral sirkuit listrik.
-                  </p>
-
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                    <pre className="text-[10px] md:text-xs font-mono text-slate-700 bg-slate-900 text-blue-400 p-4 rounded-lg overflow-x-auto text-left leading-tight">
-{` +------------------+        Wi-Fi        +-----------------------+
- |  Telegram Bot    | <-----------------> |  Cloud REST Gateway   |
- |  Voice / Text    |                     |  (Firebase Realtime)  |
- +------------------+                     +-----------------------+
-           ^                                          ^
-           | WiFi Secure                              | HTTP POST Sinks
-           v                                          v
- +----------------------------------------------------------------+
- |                  ESP32 DevKit V1 (Main Controller)             |
- +----------------------------------------------------------------+
-           |                                          |
-     (DHT Pin 4)                                (GPIO 16,17,18,19)
-           v                                          v
- +------------------+                     +-----------------------+
- | Sensor DHT11/22  |                     |  Relay 4 Ch (Active L)|
- | (Suhu & Lembab)  |                     |  (Lampu & AC Fan)     |
- +------------------+                     +-----------------------+`}
-                    </pre>
-                  </div>
-                </div>
-
-                {/* Section 3: Project Management SDLC */}
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="p-1 px-2.5 bg-blue-100 text-blue-800 rounded-md font-mono text-xs">3</span>
-                    Metode Manajemen Proyek TIK (SDLC)
-                  </h3>
-                  <p className="text-xs text-slate-600 leading-relaxed font-sans">
-                    Untuk menjamin penyelesaian sistem smart home yang tertata, metodologi yang digunakan adalah <span className="font-semibold text-slate-800">Software Development Life Cycle (SDLC)</span> dengan tahapan:
-                  </p>
-                  <ul className="list-decimal pl-5 text-xs text-slate-700 space-y-1 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <li><span className="font-bold">Analisis Kebutuhan:</span> Pengumpulan spesifikasi perangkat keras (ESP32, Relay, DHT) dan parameter bot Telegram serta UI Dashboard.</li>
-                    <li><span className="font-bold">Desain Sistem:</span> Perancangan skema pengkabelan pin out, model database json, dan diagram alur response bot.</li>
-                    <li><span className="font-bold">Implementasi (Coding):</span> Penulisan code Arduino IDE menggunakan library UniversalTelegramBot secara asinkron dan web Next.js dashboard.</li>
-                    <li><span className="font-bold">Pengujian (Testing):</span> Kalibrasi waktu respon pemicu relay dari tombol web dan bot Telegram.</li>
-                    <li><span className="font-bold">Deployment:</span> Mengunggah aplikasi dashboard ke Cloud Run / Vercel dan memprogram ESP32 fisik.</li>
-                  </ul>
-                </div>
-
-                {/* Section 4: Estimasi Biaya */}
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="p-1 px-2.5 bg-blue-100 text-blue-800 rounded-md font-mono text-xs">4</span>
-                    Estimasi Anggaran Biaya Proyek (IDR)
-                  </h3>
-                  <p className="text-xs text-slate-600 font-sans">
-                    Rincian anggaran pengeluaran belanja aset keras dan lunak untuk instalasi smart home 4 Relay modular:
-                  </p>
-
-                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-100 border-b border-slate-200">
-                          <th className="p-2 font-bold text-slate-700">Nama Komponen / Lisensi</th>
-                          <th className="p-2 font-bold text-slate-700">Estimasi Jumlah</th>
-                          <th className="p-2 font-bold text-slate-700">Kisaran Harga (IDR)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">ESP32 DevKit WROOM V1</td>
-                          <td className="p-2">1 Pcs</td>
-                          <td className="p-2 font-mono">Rp 55.000</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Modul Relay 4 Channel 5V DC Active LOW</td>
-                          <td className="p-2">1 Pcs</td>
-                          <td className="p-2 font-mono">Rp 30.000</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Sensor Suhu & Kelembaban DHT11 / DHT22</td>
-                          <td className="p-2">1 Pcs</td>
-                          <td className="p-2 font-mono">Rp 25.000</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Kabel Jumper breadboard Dupont (F-F, M-F)</td>
-                          <td className="p-2">1 Ribbon</td>
-                          <td className="p-2 font-mono">Rp 12.000</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Kabel Micro USB Data adapter 5V</td>
-                          <td className="p-2">1 Pcs</td>
-                          <td className="p-2 font-mono">Rp 15.000</td>
-                        </tr>
-                        <tr className="border-b border-slate-100 bg-slate-50">
-                          <td className="p-2 font-extrabold text-blue-600">TOTAL BELANJA ALAT (Kira-kira)</td>
-                          <td className="p-2 font-extrabold text-blue-600">——</td>
-                          <td className="p-2 font-extrabold text-blue-600 font-mono">Rp 137.000</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Section 5: Schedule */}
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="p-1 px-2.5 bg-blue-100 text-blue-800 rounded-md font-mono text-xs">5</span>
-                    Estimasi Jadwal Pengerjaan (Gantt)
-                  </h3>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-100 border-b border-slate-200">
-                          <th className="p-2 font-bold text-slate-700">Tahap Kerja</th>
-                          <th className="p-2 font-bold text-slate-700">Estimasi Waktu</th>
-                          <th className="p-2 font-bold text-slate-700">Keterangan Luaran</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Perancangan Rangkaian & Belanja</td>
-                          <td className="p-2">Hari 1 - 2</td>
-                          <td className="p-2 text-slate-500">Komponen siap ter-kalibrasi</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Perakitan Pin Out & Solder</td>
-                          <td className="p-2">Hari 3</td>
-                          <td className="p-2 text-slate-500">Rangkaian kokoh bebas korslet</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Coding ESP32 Arduino & Bot Telegram</td>
-                          <td className="p-2">Hari 4 - 5</td>
-                          <td className="p-2 text-slate-500">Bot @Father aktif merespon relay</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Pembuatan Web Dashboard & API Sync</td>
-                          <td className="p-2">Hari 6 - 8</td>
-                          <td className="p-2 text-slate-500">Dashboard UI terintegrasi database</td>
-                        </tr>
-                        <tr className="border-b border-slate-100">
-                          <td className="p-2 font-medium">Uji Coba & Penyusunan Dokumen</td>
-                          <td className="p-2">Hari 9 - 10</td>
-                          <td className="p-2 text-slate-500">Laporan Akademik Siap Cetak</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Section 6: Source Code reference block */}
-                <div className="space-y-3">
-                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="p-1 px-2.5 bg-blue-100 text-blue-800 rounded-md font-mono text-xs">6</span>
-                    Source Code ESP32 Arduino IDE (smart_home_telegram_web_esp32.ino)
-                  </h3>
-                  <p className="text-xs text-slate-600 font-sans">
-                    Kode di bawah dapat disalin secara langsung ke Arduino IDE Anda untuk diprogram ke dalam ESP32.
-                  </p>
-                  
-                  <div className="relative">
-                    <pre className="text-[10px] md:text-xs font-mono text-slate-300 bg-slate-900 p-4 rounded-xl overflow-x-auto text-left max-h-96 leading-tight select-all">
-{`/*
- * Smart Home IoT 4 Relay Telegram Bot and Web Dashboard
- * File: smart_home_telegram_web_esp32.ino
- * Board: ESP32 Dev Module
- * Author: ${studentName} - NIM ${studentNIM}
- */
-
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <UniversalTelegramBot.h>
-#include <ArduinoJson.h>
-#include <DHT.h>
-#include <HTTPClient.h>
-
-// === CONFIGURATION PLACEHOLDERS ===
-#define WIFI_SSID "ISI_NAMA_WIFI"
-#define WIFI_PASSWORD "ISI_PASSWORD_WIFI"
-#define BOT_TOKEN "ISI_TOKEN_BOT_TELEGRAM"
-#define CHAT_ID "ISI_CHAT_ID_TELEGRAM"
-
-// Set URL Node Smart Home Server / Firebase
-const char* host_sync_url = "https://ais-pre-grvenxxyltitg3ny5y7tgx-507450536974.asia-east1.run.app/api/esp32/sync";
-
-// === PIN CONFIGURATION ===
-#define DHT_PIN 4
-#define DHT_TYPE DHT11
-
-#define RELAY_1 16
-#define RELAY_2 17
-#define RELAY_3 18
-#define RELAY_4 19
-
-// Relay active LOW logic
-#define RELAY_ON LOW
-#define RELAY_OFF HIGH
-
-DHT dht(DHT_PIN, DHT_TYPE);
-WiFiClientSecure client;
-UniversalTelegramBot bot(BOT_TOKEN, client);
-
-unsigned long last_time_reading = 0;
-const unsigned long dht_delay = 5000; // Baca sensor tiap 5 detik
-
-unsigned long last_time_bot = 0;
-const unsigned long bot_delay = 1000; // Polling pesan Telegram tiap 1 detik
-
-unsigned long last_time_sync = 0;
-const unsigned long sync_delay = 3000; // Sinkron server tiap 3 detik
-
-float temperature = 0.0;
-float humidity = 0.0;
-
-bool r1_state = false;
-bool r2_state = false;
-bool r3_state = false;
-bool r4_state = false;
-
-void setup() {
-  Serial.begin(115200);
-  dht.begin();
-  
-  // Set Pin Modes
-  pinMode(RELAY_1, OUTPUT);
-  pinMode(RELAY_2, OUTPUT);
-  pinMode(RELAY_3, OUTPUT);
-  pinMode(RELAY_4, OUTPUT);
-  
-  // Matikan semua relay di awal
-  allOff();
-  
-  // Koneksi ke WiFi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Menghubungkan ke Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.println("Wi-Fi Terkoneksi!");
-  Serial.print("Alamat IP ESP32: ");
-  Serial.println(WiFi.localIP());
-
-  client.setInsecure(); // Bypass cert checks demi latency tinggi
-  
-  // Kirim notifikasi bot start
-  bot.sendMessage(CHAT_ID, "Sistem Smart Home Siri-IoT ESP32 Aktif Terkoneksi!", "");
-}
-
-void loop() {
-  unsigned long current_millis = millis();
-  
-  // 1. MEMBACA SENSOR SUHU & KELEMBABAN BERKALA
-  if (current_millis - last_time_reading > dht_delay) {
-    float t = dht.readTemperature();
-    float h = dht.readHumidity();
-    
-    if (!isnan(t) && !isnan(h)) {
-      temperature = t;
-      humidity = h;
-      Serial.printf("Suhu: %.2fC, Lembab: %.2f%%\\n", temperature, humidity);
-    }
-    last_time_reading = current_millis;
-  }
-
-  // 2. POLLING INSTAN PESAN TELEGRAM
-  if (current_millis - last_time_bot > bot_delay) {
-    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    while (numNewMessages) {
-      handleTelegramMessage(numNewMessages);
-      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
-    }
-    last_time_bot = current_millis;
-  }
-
-  // 3. SINKRONISASI JALUR KEDUA VIA REST API CLOUD
-  if (current_millis - last_time_sync > sync_delay) {
-    syncWithServer();
-    last_time_sync = current_millis;
-  }
-}
-
-// FUNGSI PASOKAN KONTROL RELAY
-void controlRelay(int pin, bool state) {
-  digitalWrite(pin, state ? RELAY_ON : RELAY_OFF);
-}
-
-void allOff() {
-  stateRelayAll(false, false, false, false);
-  bot.sendMessage(CHAT_ID, "Semua relay berhasil dinonaktifkan.", "");
-}
-
-void stateRelayAll(bool s1, bool s2, bool s3, bool s4) {
-  r1_state = s1;
-  r2_state = s2;
-  r3_state = s3;
-  r4_state = s4;
-  
-  controlRelay(RELAY_1, r1_state);
-  controlRelay(RELAY_2, r2_state);
-  controlRelay(RELAY_3, r3_state);
-  controlRelay(RELAY_4, r4_state);
-}
-
-// POLA VARIASI LAMPU 1 (Running Led)
-void variation1() {
-  Serial.println("Menjalankan variasi 1...");
-  bot.sendMessage(CHAT_ID, "Menyalakan Variasi Jumper 1 (Running LED)...", "");
-  
-  stateRelayAll(true, false, false, false); delay(500);
-  stateRelayAll(false, true, false, false); delay(500);
-  stateRelayAll(false, false, true, false); delay(500);
-  stateRelayAll(false, false, false, true); delay(500);
-  stateRelayAll(false, false, false, false);
-}
-
-// POLA VARIASI LAMPU 2 (Kombinasi Blink)
-void variation2() {
-  Serial.println("Menjalankan variasi 2...");
-  bot.sendMessage(CHAT_ID, "Menyalakan Variasi Jumper 2 (Kedip Kombinasi)...", "");
-  
-  for(int i=0; i<3; i++) {
-    stateRelayAll(true, false, true, false); delay(400);
-    stateRelayAll(false, true, false, true); delay(400);
-  }
-  stateRelayAll(false, false, false, false);
-}
-
-// PARSING PERINTAH TEXT DAN PESAN SUARA TELEGRAM TELEGRAM
-void handleTelegramMessage(int numNewMessages) {
-  for (int i = 0; i < numNewMessages; i++) {
-    String chat_id = String(bot.messages[i].chat_id);
-    if (chat_id != CHAT_ID) {
-      bot.sendMessage(chat_id, "Akses Smart Home Ditolak! Hubungi @Admin", "");
-      continue;
-    }
-    
-    String text = bot.messages[i].text;
-    text.toLowerCase();
-    
-    Serial.println("Pesan Telegram Diterima: " + text);
-
-    if (text == "/start") {
-      String menu = "=== MENU UTAMA SIRI-IOT ===\\n\\n";
-      menu += "🔧 RELAY TOGGLES:\\n";
-      menu += "/lampu1_on - Nyalakan Lampu Teras\\n";
-      menu += "/lampu1_off - Matikan Lampu Teras\\n";
-      menu += "/lampu2_on - Nyalakan Lampu Kamar\\n";
-      menu += "/lampu2_off - Matikan Lampu Kamar\\n";
-      menu += "/lampu3_on - Nyalakan Ruang Tamu\\n";
-      menu += "/lampu3_off - Matikan Ruang Tamu\\n";
-      menu += "/lampu4_on - Nyalakan Kipas / AC\\n";
-      menu += "/lampu4_off - Matikan Kipas / AC\\n\\n";
-      menu += "🕹 METRICS & PATTERNS:\\n";
-      menu += "/sensor - Cek Sensor DHT11\\n";
-      menu += "/status - Amati Status All Relay\\n";
-      menu += "/all_on - Hidupkan Semua\\n";
-      menu += "/all_off - Padamkan Semua\\n";
-      menu += "/variasi1 - Jalankan Pola Running\\n";
-      menu += "/variasi2 - Jalankan Pola Kombinasi\\n";
-      bot.sendMessage(chat_id, menu, "");
-    }
-    else if (text == "/lampu1_on" || text == "nyalakan lampu 1" || text == "lampu 1 hidup") {
-      r1_state = true;
-      controlRelay(RELAY_1, r1_state);
-      bot.sendMessage(chat_id, "Relay 1 (Lampu Teras) AKTIF", "");
-    }
-    else if (text == "/lampu1_off" || text == "matikan lampu 1" || text == "lampu 1 mati") {
-      r1_state = false;
-      controlRelay(RELAY_1, r1_state);
-      bot.sendMessage(chat_id, "Relay 1 (Lampu Teras) NONAKTIF", "");
-    }
-    else if (text == "/lampu2_on" || text == "nyalakan lampu 2" || text == "lampu 2 hidup") {
-      r2_state = true;
-      controlRelay(RELAY_2, r2_state);
-      bot.sendMessage(chat_id, "Relay 2 (Lampu Kamar) AKTIF", "");
-    }
-    else if (text == "/lampu2_off" || text == "matikan lampu 2" || text == "lampu 2 mati") {
-      r2_state = false;
-      controlRelay(RELAY_2, r2_state);
-      bot.sendMessage(chat_id, "Relay 2 (Lampu Kamar) NONAKTIF", "");
-    }
-    else if (text == "/lampu3_on" || text == "nyalakan lampu 3") {
-      r3_state = true;
-      controlRelay(RELAY_3, r3_state);
-      bot.sendMessage(chat_id, "Relay 3 (Lampu Ruang Tamu) AKTIF", "");
-    }
-    else if (text == "/lampu3_off" || text == "matikan lampu 3") {
-      r3_state = false;
-      controlRelay(RELAY_3, r3_state);
-      bot.sendMessage(chat_id, "Relay 3 (Lampu Ruang Tamu) NONAKTIF", "");
-    }
-    else if (text == "/lampu4_on" || text == "nyalakan kipas" || text == "nyalakan ac") {
-      r4_state = true;
-      controlRelay(RELAY_4, r4_state);
-      bot.sendMessage(chat_id, "Relay 4 (Kipas / AC) AKTIF", "");
-    }
-    else if (text == "/lampu4_off" || text == "matikan kipas" || text == "matikan ac") {
-      r4_state = false;
-      controlRelay(RELAY_4, r4_state);
-      bot.sendMessage(chat_id, "Relay 4 (Kipas / AC) NONAKTIF", "");
-    }
-    else if (text == "/all_on" || text == "nyalakan semua lampu") {
-      stateRelayAll(true, true, true, true);
-      bot.sendMessage(chat_id, "Semua Relay dihidupkan.", "");
-    }
-    else if (text == "/all_off" || text == "matikan semua" || text == "matikan lampu") {
-      allOff();
-    }
-    else if (text == "/variasi1" || text == "nyalakan variasi 1") {
-      variation1();
-    }
-    else if (text == "/variasi2" || text == "nyalakan variasi 2") {
-      variation2();
-    }
-    else if (text == "/sensor" || text == "berapa temperatur" || text == "berapa kelembapan") {
-      String reply = "🌡 Suhu: " + String(temperature, 1) + "C\\n💧 Kelembaban: " + String(humidity, 1) + "%";
-      bot.sendMessage(chat_id, reply, "");
-    }
-    else if (text == "/status") {
-      String reply = "Status Kelistrikan Rumah:\\n";
-      reply += "Relay 1 [Teras Depan]: " + String(r1_state ? "ON" : "OFF") + "\\n";
-      reply += "Relay 2 [Kamar Tidur]: " + String(r2_state ? "ON" : "OFF") + "\\n";
-      reply += "Relay 3 [Ruang Tamu]: " + String(r3_state ? "ON" : "OFF") + "\\n";
-      reply += "Relay 4 [Kipas / AC]: " + String(r4_state ? "ON" : "OFF");
-      bot.sendMessage(chat_id, reply, "");
-    }
-  }
-}
-
-// CLIENT SYNC UTAMA KE WEB API CLOUD
-void syncWithServer() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(host_sync_url);
-    http.addHeader("Content-Type", "application/json");
-
-    // Persiapkan JSON Payload
-    StaticJsonDocument<200> doc;
-    doc["temperature"] = temperature;
-    doc["humidity"] = humidity;
-    doc["ip_address"] = WiFi.localIP().toString();
-    doc["wifi_signal"] = String(WiFi.RSSI()) + " dBm";
-    
-    JsonObject relay = doc.createNestedObject("relay");
-    relay["relay1"] = r1_state;
-    relay["relay2"] = r2_state;
-    relay["relay3"] = r3_state;
-    relay["relay4"] = r4_state;
-
-    String json_payload;
-    serializeJson(doc, json_payload);
-    
-    int httpResponseCode = http.POST(json_payload);
-    if (httpResponseCode > 0) {
-      String response = http.getString();
-      
-      // Parse targets dikomando dari Web Dashboard
-      StaticJsonDocument<300> resDoc;
-      deserializeJson(resDoc, response);
-      
-      if (resDoc["success"] == true) {
-        // Bandingkan perubahan relay dari web dashboard untuk dieksekusi pin fisik
-        bool target_r1 = resDoc["target_relay"]["relay1"];
-        bool target_r2 = resDoc["target_relay"]["relay2"];
-        bool target_r3 = resDoc["target_relay"]["relay3"];
-        bool target_r4 = resDoc["target_relay"]["relay4"];
-        
-        if (target_r1 != r1_state) {
-          r1_state = target_r1;
-          controlRelay(RELAY_1, r1_state);
-        }
-        if (target_r2 != r2_state) {
-          r2_state = target_r2;
-          controlRelay(RELAY_2, r2_state);
-        }
-        if (target_r3 != r3_state) {
-          r3_state = target_r3;
-          controlRelay(RELAY_3, r3_state);
-        }
-        if (target_r4 != r4_state) {
-          r4_state = target_r4;
-          controlRelay(RELAY_4, r4_state);
-        }
-        
-        // Cek jika ada perintah variasi dari web
-        String last_cmd = resDoc["command"]["last_command"];
-        if (last_cmd == "VARIASI_1") {
-          variation1();
-        } else if (last_cmd == "VARIASI_2") {
-          variation2();
-        }
-      }
-    }
-    http.end();
-  }
-}`}
-                    </pre>
-                  </div>
-                </div>
-
-                {/* Score breakdown alignment details */}
-                <div className="bg-slate-50 p-5 rounded-xl border border-slate-300 space-y-3 print:hidden">
-                  <span className="text-xs uppercase tracking-widest font-extrabold text-blue-600 block">Metode Penilaian Akademik (Quis Alignment)</span>
-                  
-                  <div className="grid grid-cols-5 gap-2 text-center text-xs">
-                    <div className="p-2 border border-slate-200 bg-white rounded">
-                      <p className="font-bold">20%</p>
-                      <p className="text-[10px] text-slate-400">Mermaid Diagram</p>
-                    </div>
-                    <div className="p-2 border border-slate-200 bg-white rounded">
-                      <p className="font-bold">20%</p>
-                      <p className="text-[10px] text-slate-400">Telegram Bot</p>
-                    </div>
-                    <div className="p-2 border border-slate-200 bg-white rounded">
-                      <p className="font-bold">20%</p>
-                      <p className="text-[10px] text-slate-400">Web Dashboard</p>
-                    </div>
-                    <div className="p-2 border border-slate-200 bg-white rounded">
-                      <p className="font-bold">20%</p>
-                      <p className="text-[10px] text-slate-400">Opsi Variasi</p>
-                    </div>
-                    <div className="p-2 border border-slate-200 bg-white rounded">
-                      <p className="font-bold">20%</p>
-                      <p className="text-[10px] text-slate-400">Dokumentasi</p>
+                  {/* Section 1: Developer Info */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">1. Informasi Pengembang</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Nama Mahasiswa:</label>
+                        <input 
+                          type="text" 
+                          value={studentName} 
+                          onChange={(e) => setStudentName(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">NIM Mahasiswa:</label>
+                        <input 
+                          type="text" 
+                          value={studentNIM} 
+                          onChange={(e) => setStudentNIM(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
                     </div>
                   </div>
+
+                  {/* Section 2: Wi-Fi Credentials */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">2. Koneksi Wi-Fi Rumah/Lab</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">SSID WiFi (Nama):</label>
+                        <input 
+                          type="text" 
+                          value={arduinoSsid} 
+                          onChange={(e) => setArduinoSsid(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                          placeholder="Contoh: Asus_IoT_Lab"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Password WiFi:</label>
+                        <input 
+                          type="password" 
+                          value={arduinoPassword} 
+                          onChange={(e) => setArduinoPassword(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                          placeholder="Password jaringan WiFi"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Target Sync API URL (Otomatis):</label>
+                        <input 
+                          type="text" 
+                          value={syncUrl} 
+                          disabled 
+                          className="w-full text-[11px] p-2 bg-slate-100 border border-slate-200 rounded font-mono text-slate-500 select-all" 
+                        />
+                        <span className="text-[9px] text-slate-400 block mt-1 leading-snug">URL ini menunjuk langsung ke gateway dashboard instansi Anda saat ini.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 3: Firebase Realtime Database */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">3. Firebase Realtime Database</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Database URL (RTDB):</label>
+                        <input 
+                          type="text" 
+                          value={firebaseUrl} 
+                          onChange={(e) => setFirebaseUrl(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                          placeholder="https://proyek-anda-default-rtdb.firebaseio.com/"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Database Secret / Token Auth:</label>
+                        <input 
+                          type="password" 
+                          value={firebaseSecret} 
+                          onChange={(e) => setFirebaseSecret(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                          placeholder="Database Secret dari Konsol Firebase"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 4: Telegram Bot Integration */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">4. Telegram Bot Integration</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Token Bot Telegram:</label>
+                        <input 
+                          type="text" 
+                          value={arduinoBotToken} 
+                          onChange={(e) => setArduinoBotToken(e.target.value)}
+                          className="w-full text-[11px] p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                          placeholder="Bot token dari @BotFather"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Chat ID Pengguna:</label>
+                        <input 
+                          type="text" 
+                          value={arduinoChatId} 
+                          onChange={(e) => setArduinoChatId(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                          placeholder="Chat ID numerik Anda"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 5: Hardware Pin Maps */}
+                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">5. Pemetaan Pin GPIO ESP32</h3>
+                    <div className="grid grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Sensor DHT Pin:</label>
+                        <input 
+                          type="text" 
+                          value={arduinoDhtPin} 
+                          onChange={(e) => setArduinoDhtPin(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Tipe Sensor DHT:</label>
+                        <select 
+                          value={arduinoDhtType} 
+                          onChange={(e) => setArduinoDhtType(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
+                        >
+                          <option value="DHT11">DHT11</option>
+                          <option value="DHT22">DHT22</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Relay 1 Pin (Teras):</label>
+                        <input 
+                          type="text" 
+                          value={arduinoR1Pin} 
+                          onChange={(e) => setArduinoR1Pin(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Relay 2 Pin (Kamar):</label>
+                        <input 
+                          type="text" 
+                          value={arduinoR2Pin} 
+                          onChange={(e) => setArduinoR2Pin(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Relay 3 Pin (Tamu):</label>
+                        <input 
+                          type="text" 
+                          value={arduinoR3Pin} 
+                          onChange={(e) => setArduinoR3Pin(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Relay 4 Pin (Kipas):</label>
+                        <input 
+                          type="text" 
+                          value={arduinoR4Pin} 
+                          onChange={(e) => setArduinoR4Pin(e.target.value)}
+                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
 
-                {/* Footer sign section for signatures */}
-                <div className="pt-8 border-t border-slate-200 flex justify-between text-xs select-none">
-                  <div>
-                    <p className="font-bold text-slate-500">Mengetahui, Dosen Penguji</p>
-                    <div className="h-16" />
-                    <p className="font-bold text-slate-800 underline">NIP. ____________________</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-slate-500">Mahasiswa Pengaju</p>
-                    <div className="h-16" />
-                    <p className="font-bold text-slate-800 underline">{studentName}</p>
-                    <p className="text-[10px] text-slate-400 font-mono">NIM. {studentNIM}</p>
+                {/* Live Arduino Code Preview Panel - Column span 7 */}
+                <div className="col-span-1 lg:col-span-7 space-y-4">
+                  <div 
+                    id="academic-pdf-print-area" 
+                    className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden flex flex-col h-full min-h-[640px]"
+                  >
+                    <div className="bg-slate-950 p-4 border-b border-slate-800 flex justify-between items-center shrink-0">
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-slate-400 ml-2 inline-flex items-center gap-1.5 focus-within:text-white transition-colors bg-slate-900 hover:bg-slate-800 px-2.5 py-1 rounded border border-slate-800">
+                          <Edit3 size={11} className="text-slate-500" />
+                          <input 
+                            type="text" 
+                            value={arduinoSketchName} 
+                            onChange={(e) => setArduinoSketchName(e.target.value)}
+                            className="bg-transparent text-slate-300 font-mono text-[11px] font-bold focus:outline-none w-56 border-b border-transparent focus:border-blue-500 pb-0"
+                            placeholder="nama_sketsa.ino"
+                          />
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={copyToClipboard}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 font-mono text-[10px] text-slate-300 rounded border border-slate-700 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                        >
+                          {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                          {copied ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Pre-formatted code element showing dynamic generated code */}
+                    <div 
+                      className="flex-1 bg-slate-950 p-5 md:p-6 font-mono text-[11px] md:text-xs text-slate-300 overflow-auto select-all max-h-[800px] leading-relaxed custom-scrollbar text-left whitespace-pre border-t border-slate-900"
+                    >
+                      {generatedArduinoCode}
+                    </div>
+
+                    <div className="bg-slate-950 p-3.5 border-t border-slate-800 flex justify-between items-center text-[10px] font-mono text-slate-500 shrink-0 select-none">
+                      <span>Encoding: UTF-8</span>
+                      <span>Ready to Program to ESP32</span>
+                    </div>
                   </div>
                 </div>
 
               </div>
+
             </div>
           )}
 
@@ -1746,11 +1794,15 @@ void syncWithServer() {
                       </span>
                       Masuk ke Sketch → Include Library → Manage Libraries, lalu cari dan instal library berikut satu per satu:
                       <br />
+                      * <span className="font-bold text-slate-700">Firebase ESP32 Client by Mobizt</span> (Untuk Integrasi Database Realtime)
+                      <br />
                       * <span className="font-bold text-slate-700">UniversalTelegramBot by Brian Lough</span> (Versi Terkini)
                       <br />
                       * <span className="font-bold text-slate-700">ArduinoJson by Benoit Blanchon</span>
                       <br />
                       * <span className="font-bold text-slate-700">DHT Sensor Library by Adafruit</span>
+                      <br />
+                      * <span className="font-bold text-slate-700">Adafruit Unified Sensor</span> (Pendukung DHT)
                     </p>
                   </div>
                 </div>

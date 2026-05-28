@@ -7,7 +7,8 @@ import {
   Settings, 
   HelpCircle,
   Activity,
-  Lightbulb
+  Lightbulb,
+  Code
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -23,7 +24,7 @@ export default function Sidebar({ activeTab, setActiveTab, espStatus }: SidebarP
     { id: "devices", label: "Devices Control", icon: Lightbulb },
     { id: "charts", label: "Sensor Analytics", icon: LineChart },
     { id: "simulator", label: "ESP32 Simulator", icon: Cpu },
-    { id: "report", label: "Quiz PDF Report", icon: FileText },
+    { id: "report", label: "Arduino IDE Code", icon: Code },
     { id: "settings", label: "IoT Guide & Setup", icon: Settings },
   ];
 
