@@ -1,0 +1,6 @@
+{
+  "name": "Smart Home IoT Dashboard",
+  "description": "Smart Home IoT 4 Relay Telegram Bot and Web Dashboard. Control devices, monitor DHT sensors, view activity, download reports, and interact with an AI smart assistant.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
