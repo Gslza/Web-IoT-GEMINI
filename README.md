@@ -25,11 +25,11 @@ Berikut adalah konfigurasi pemetaan pin GPIO ESP32 default yang disarankan pada 
 
 | Komponen Hardware | Pin GPIO ESP32 | Keterangan |
 | :--- | :---: | :--- |
-| **Sensor DHT** (Temp & Humid) | **GPIO 15** | Hubungkan dengan resistor pull-up 4.7k ke 3.3V |
-| **Relay 1** (Lampu Utama) | **GPIO 12** | Output Digital (Kondisi Aktif: Low/High tergantung jenis modul) |
-| **Relay 2** (AC / Kipas) | **GPIO 13** | Output Digital |
-| **Relay 3** (Stopkontak Kerja) | **GPIO 14**| Output Digital |
-| **Relay 4** (Sistem Cadangan) | **GPIO 27** | Output Digital |
+| **Sensor DHT** (Temp & Humid) | **GPIO 4** | Hubungkan dengan resistor pull-up 4.7k ke 3.3V |
+| **Relay 1** (Lampu Utama) | **GPIO 14** | Output Digital (Kondisi Aktif: Low/High tergantung jenis modul) |
+| **Relay 2** (AC / Kipas) | **GPIO 27** | Output Digital |
+| **Relay 3** (Stopkontak Kerja) | **GPIO 26**| Output Digital |
+| **Relay 4** (Sistem Cadangan) | **GPIO 25** | Output Digital |
 
 ---
 
