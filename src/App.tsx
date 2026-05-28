@@ -261,18 +261,15 @@ export default function App() {
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <Firebase_ESP_Client.h>
-#include <addons/TokenHelper.h>
-#include <addons/RTDBHelper.h>
+#include <HTTPClient.h>
 
 #define WIFI_SSID "${arduinoSsid}"
 #define WIFI_PASSWORD "${arduinoPassword}"
 #define BOT_TOKEN "${arduinoBotToken}"
 #define CHAT_ID "${arduinoChatId}"
 
-// === CONFIGURATION FIREBASE REALTIME DATABASE ===
-#define FIREBASE_HOST "${firebaseUrl}"
-#define FIREBASE_AUTH "${firebaseSecret}"
+// Set URL Node Smart Home Server
+const char* host_sync_url = "${syncUrl}";
 
 // === PIN CONFIGURATION ===
 #define DHT_PIN ${arduinoDhtPin}
@@ -291,11 +288,6 @@ DHT dht(DHT_PIN, DHT_TYPE);
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOT_TOKEN, client);
 
-FirebaseData fbdo;
-FirebaseAuth auth;
-FirebaseConfig config;
-bool signupOK = false;
-
 unsigned long last_time_reading = 0;
 const unsigned long dht_delay = 5000; // Baca sensor tiap 5 detik
 
@@ -303,7 +295,7 @@ unsigned long last_time_bot = 0;
 const unsigned long bot_delay = 1000; // Polling pesan Telegram tiap 1 detik
 
 unsigned long last_time_sync = 0;
-const unsigned long sync_delay = 3000; // Sinkron server & Firebase tiap 3 detik
+const unsigned long sync_delay = 3000; // Sinkron server tiap 3 detik
 
 float temperature = 0.0;
 float humidity = 0.0;
@@ -322,7 +314,8 @@ void setup() {
   pinMode(RELAY_3, OUTPUT);
   pinMode(RELAY_4, OUTPUT);
   
-  allOff();
+  // Set kondisi awal semua relay mati tanpa mengirim pesan Telegram (karena wifi belum ada)
+  stateRelayAll(false, false, false, false);
   
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -339,14 +332,6 @@ void setup() {
   client.setInsecure(); // Bypass cert checks demi latency tinggi
   
   bot.sendMessage(CHAT_ID, "Sistem Smart Home Siri-IoT ESP32 Aktif Terkoneksi!", "");
-
-  Serial.println("Mengonfigurasi Firebase Realtime Database...");
-  config.database_url = FIREBASE_HOST;
-  config.signer.tokens.legacy_token = FIREBASE_AUTH;
-
-  // Lakukan inisiasi library Firebase ESP Client
-  Firebase.reconnectWiFi(true);
-  Firebase.begin(&config, &auth);
   
   Serial.println("Sistem IoT Siap Berkomunikasi!");
 }
@@ -376,7 +361,7 @@ void loop() {
   }
 
   if (current_millis - last_time_sync > sync_delay) {
-    syncWithFirebase();
+    syncWithServer();
     last_time_sync = current_millis;
   }
 }
@@ -387,7 +372,9 @@ void controlRelay(int pin, bool state) {
 
 void allOff() {
   stateRelayAll(false, false, false, false);
-  bot.sendMessage(CHAT_ID, "Semua relay berhasil dinonaktifkan.", "");
+  if (WiFi.status() == WL_CONNECTED) {
+    bot.sendMessage(CHAT_ID, "Semua relay berhasil dinonaktifkan.", "");
+  }
 }
 
 void stateRelayAll(bool s1, bool s2, bool s3, bool s4) {
@@ -525,53 +512,66 @@ void handleTelegramMessage(int numNewMessages) {
   }
 }
 
-void syncWithFirebase() {
-  if (Firebase.ready() && WiFi.status() == WL_CONNECTED) {
-    // 1. Kirim Data Metrik Sensor & Koneksi ke Firebase RTDB
-    Firebase.RTDB.setFloat(&fbdo, "/sensor/temperature", temperature);
-    Firebase.RTDB.setFloat(&fbdo, "/sensor/humidity", humidity);
-    Firebase.RTDB.setInt(&fbdo, "/sensor/rssi", WiFi.RSSI());
-    Firebase.RTDB.setString(&fbdo, "/system/ip", WiFi.localIP().toString());
+void syncWithServer() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(host_sync_url);
+    http.addHeader("Content-Type", "application/json");
 
-    Firebase.RTDB.setBool(&fbdo, "/relay/state1", r1_state);
-    Firebase.RTDB.setBool(&fbdo, "/relay/state2", r2_state);
-    Firebase.RTDB.setBool(&fbdo, "/relay/state3", r3_state);
-    Firebase.RTDB.setBool(&fbdo, "/relay/state4", r4_state);
-
-    bool target_val = false;
+    StaticJsonDocument<200> doc;
+    doc["temperature"] = temperature;
+    doc["humidity"] = humidity;
+    doc["ip_address"] = WiFi.localIP().toString();
+    doc["wifi_signal"] = String(WiFi.RSSI()) + " dBm";
     
-    if (Firebase.RTDB.getBool(&fbdo, "/control/relay1")) {
-      target_val = fbdo.to<bool>();
-      if (target_val != r1_state) {
-        r1_state = target_val;
-        controlRelay(RELAY_1, r1_state);
-        Serial.printf("Firebase: Relay 1 diubah ke %s\\\\n", r1_state ? "ON" : "OFF");
+    JsonObject relay = doc.createNestedObject("relay");
+    relay["relay1"] = r1_state;
+    relay["relay2"] = r2_state;
+    relay["relay3"] = r3_state;
+    relay["relay4"] = r4_state;
+
+    String json_payload;
+    serializeJson(doc, json_payload);
+    
+    int httpResponseCode = http.POST(json_payload);
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      
+      StaticJsonDocument<300> resDoc;
+      deserializeJson(resDoc, response);
+      
+      if (resDoc["success"] == true) {
+        bool target_r1 = resDoc["target_relay"]["relay1"];
+        bool target_r2 = resDoc["target_relay"]["relay2"];
+        bool target_r3 = resDoc["target_relay"]["relay3"];
+        bool target_r4 = resDoc["target_relay"]["relay4"];
+        
+        if (target_r1 != r1_state) {
+          r1_state = target_r1;
+          controlRelay(RELAY_1, r1_state);
+        }
+        if (target_r2 != r2_state) {
+          r2_state = target_r2;
+          controlRelay(RELAY_2, r2_state);
+        }
+        if (target_r3 != r3_state) {
+          r3_state = target_r3;
+          controlRelay(RELAY_3, r3_state);
+        }
+        if (target_r4 != r4_state) {
+          r4_state = target_r4;
+          controlRelay(RELAY_4, r4_state);
+        }
+        
+        String last_cmd = resDoc["command"]["last_command"];
+        if (last_cmd == "VARIASI_1") {
+          variation1();
+        } else if (last_cmd == "VARIASI_2") {
+          variation2();
+        }
       }
     }
-    if (Firebase.RTDB.getBool(&fbdo, "/control/relay2")) {
-      target_val = fbdo.to<bool>();
-      if (target_val != r2_state) {
-        r2_state = target_val;
-        controlRelay(RELAY_2, r2_state);
-        Serial.printf("Firebase: Relay 2 diubah ke %s\\\\n", r2_state ? "ON" : "OFF");
-      }
-    }
-    if (Firebase.RTDB.getBool(&fbdo, "/control/relay3")) {
-      target_val = fbdo.to<bool>();
-      if (target_val != r3_state) {
-        r3_state = target_val;
-        controlRelay(RELAY_3, r3_state);
-        Serial.printf("Firebase: Relay 3 diubah ke %s\\\\n", r3_state ? "ON" : "OFF");
-      }
-    }
-    if (Firebase.RTDB.getBool(&fbdo, "/control/relay4")) {
-      target_val = fbdo.to<bool>();
-      if (target_val != r4_state) {
-        r4_state = target_val;
-        controlRelay(RELAY_4, r4_state);
-        Serial.printf("Firebase: Relay 4 diubah ke %s\\\\n", r4_state ? "ON" : "OFF");
-      }
-    }
+    http.end();
   }
 }
 `;
@@ -1473,36 +1473,9 @@ void syncWithFirebase() {
                     </div>
                   </div>
 
-                  {/* Section 3: Firebase Realtime Database */}
+                  {/* Section 3: Telegram Bot Integration */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
-                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">3. Firebase Realtime Database</h3>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Database URL (RTDB):</label>
-                        <input 
-                          type="text" 
-                          value={firebaseUrl} 
-                          onChange={(e) => setFirebaseUrl(e.target.value)}
-                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
-                          placeholder="https://proyek-anda-default-rtdb.firebaseio.com/"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Database Secret / Token Auth:</label>
-                        <input 
-                          type="password" 
-                          value={firebaseSecret} 
-                          onChange={(e) => setFirebaseSecret(e.target.value)}
-                          className="w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded font-sans font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white" 
-                          placeholder="Database Secret dari Konsol Firebase"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Section 4: Telegram Bot Integration */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
-                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">4. Telegram Bot Integration</h3>
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">3. Telegram Bot Integration</h3>
                     <div className="space-y-3">
                       <div>
                         <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Token Bot Telegram:</label>
@@ -1527,9 +1500,9 @@ void syncWithFirebase() {
                     </div>
                   </div>
 
-                  {/* Section 5: Hardware Pin Maps */}
+                  {/* Section 4: Pemetaan Pin GPIO ESP32 */}
                   <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3.5">
-                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">5. Pemetaan Pin GPIO ESP32</h3>
+                    <h3 className="text-xs uppercase tracking-widest font-black text-blue-600">4. Pemetaan Pin GPIO ESP32</h3>
                     <div className="grid grid-cols-2 gap-3.5">
                       <div>
                         <label className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-1">Sensor DHT Pin:</label>
@@ -1689,32 +1662,10 @@ void syncWithFirebase() {
                   </div>
                 </div>
 
-                {/* Step 3: Firebase setup details */}
+                {/* Step 3: Arduino IDE package installation */}
                 <div className="bg-white p-5 rounded-xl border border-slate-200 flex gap-4">
                   <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
                     3
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight">Menghubungkan ke Firebase Realtime Database (Alternatif Direct)</h3>
-                    <p className="text-slate-500 leading-relaxed font-sans">
-                      Jika Anda ingin menggunakan database cloud langsung dibanding gateway REST internal kami:
-                      <br /><br />
-                      1. Masuk ke Google Firebase Console milik Anda sendiri. Buat project baru dan klik "Realtime Database" di menu kiri.
-                      <br />
-                      2. Buat database di wilayah terdekat (contoh: Singapore) dan buat aturan keamanan (Rules) menjadi true untuk pembacaan / penulisan:
-                      <br />
-                      <span className="font-mono text-slate-600 bg-slate-50 px-2.5 py-1 rounded block my-1">
-                        {`{ "rules": { ".read": true, ".write": true } }`}
-                      </span>
-                      3. Salin URL database firebase Anda, sertakan token autentikasi di dalam library <span className="font-semibold font-mono">Firebase_ESP_Client</span> untuk komunikasi data solid.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Step 4: Arduino IDE package installation */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 flex gap-4">
-                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
-                    4
                   </div>
                   <div className="space-y-2 text-xs">
                     <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight">Pengaturan Arduino IDE & Library</h3>
@@ -1725,8 +1676,6 @@ void syncWithFirebase() {
                         https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
                       </span>
                       Masuk ke Sketch → Include Library → Manage Libraries, lalu cari dan instal library berikut satu per satu:
-                      <br />
-                      * <span className="font-bold text-slate-700">Firebase ESP32 Client by Mobizt</span> (Untuk Integrasi Database Realtime)
                       <br />
                       * <span className="font-bold text-slate-700">UniversalTelegramBot by Brian Lough</span> (Versi Terkini)
                       <br />
@@ -1739,25 +1688,23 @@ void syncWithFirebase() {
                   </div>
                 </div>
 
-                {/* Step 5: Troubleshooting Sketch Too Big */}
+                {/* Step 4: Troubleshooting Sketch Size */}
                 <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 flex gap-4">
                   <div className="w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center font-bold text-sm shrink-0">
-                    5
+                    4
                   </div>
                   <div className="space-y-2 text-xs">
-                    <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight text-amber-900">Solusi Ukuran Program ("Sketch too big / Text section exceeds available space")</h3>
+                    <h3 className="font-extrabold text-sm text-slate-800 uppercase tracking-tight text-amber-900">Solusi Ukuran Program ("Sketch too big")</h3>
                     <p className="text-amber-950 leading-relaxed font-sans">
-                      Kami telah mengoptimalkan sketch di atas dengan membuang library <span className="font-semibold">HTTPClient</span> bawaan ESP32 yang berat. Hal ini memotong pemakaian memori flash secara signifikan!
+                      Dengan hanya menggunakan library bawaan <span className="font-semibold">HTTPClient</span> dan tanpa library Firebase yang sangat berat, ukuran kompilasi sketch ini kini bersahabat dan pas di dalam skema default memori flash ESP32!
                       <br /><br />
-                      Jika Anda menggabungkan kode ini dengan library lain dan jatah flash bawaan ESP32 Anda masih terlampaui, Anda bisa menyelesaikan kendala ini dalam 5 detik di Arduino IDE:
+                      Namun, jika Anda nanti meningkatkan fungsionalitas dan menemui error kapasitas flash:
                       <br />
                       1. Di Arduino IDE, klik menu <span className="font-bold">Tools</span> (Peralatan) pada bilah navigasi atas.
                       <br />
                       2. Cari opsi <span className="font-bold">Partition Scheme</span> (Skema Partisi).
                       <br />
-                      3. Ubah pengaturannya dari <span className="font-bold text-red-600 font-mono">"Default (1.2MB APP/1.5MB SPIFFS)"</span> ke <span className="font-bold text-emerald-700 font-mono">"No OTA (2MB APP/2MB SPIFFS)"</span> atau <span className="font-bold text-teal-700 font-mono">"Huge APP (3MB No OTA/1MB SPIFFS)"</span>.
-                      <br />
-                      4. Tekan kembali <span className="font-semibold animate-pulse text-amber-900">Verify / Compile</span>. ESP32 secara fisik memiliki 4MB flash (sangat besar), dengan mengubah skema partisi ke <span className="font-mono bg-amber-100 px-1 py-0.5 rounded">Huge APP</span> atau <span className="font-mono bg-amber-100 px-1 py-0.5 rounded">No OTA</span> jatah ruang program Anda naik drastis dan error dipastikan hilang 100%!
+                      3. Ubah pengaturannya dari <span className="font-bold text-red-600 font-mono">"Default (1.2MB APP/1.5MB SPIFFS)"</span> ke <span className="font-bold text-emerald-700 font-mono">"No OTA (2MB APP/2MB SPIFFS)"</span> atau <span className="font-bold text-teal-700 font-mono">"Huge APP (3MB No OTA/1MB SPIFFS)"</span> agar kapasitas melimpah!
                     </p>
                   </div>
                 </div>
