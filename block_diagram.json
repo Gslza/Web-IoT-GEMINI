@@ -1,0 +1,120 @@
+{
+  "systemName": "Siri-IoT ESP32 Smart Home System",
+  "version": "2.0.0",
+  "description": "Blok diagram arsitektur sistem IoT yang menghubungkan perangkat keras ESP32, REST API Server, Web Dashboard, dan Telegram Bot.",
+  "blocks": [
+    {
+      "id": "B1",
+      "name": "Input Pembacaan Sensor",
+      "category": "Hardware - Input",
+      "components": [
+        {
+          "name": "Sensor DHT (DHT11/DHT22)",
+          "pin": "GPIO 15",
+          "role": "Mengukur suhu (°C) dan kelembaban udara (%) lingkungan secara periodik (setiap 5 detik)."
+        }
+      ]
+    },
+    {
+      "id": "B2",
+      "name": "Unit Pemroses Utama (Microcontroller)",
+      "category": "Hardware - Controller",
+      "components": [
+        {
+          "name": "ESP32 SoC Board",
+          "role": "Mengeksekusi firmware C++, memproses data sensor, mengontrol output digital, melakukan polling Telegram Bot, dan berkoneksi ke jaringan Wi-Fi untuk sinkronisasi HTTPClient."
+        }
+      ]
+    },
+    {
+      "id": "B3",
+      "name": "Output Aktuator",
+      "category": "Hardware - Output",
+      "components": [
+        {
+          "name": "4-Channel Relay Module (Relay 1 - 4)",
+          "pins": ["GPIO 12", "GPIO 13", "GPIO 14", "GPIO 27"],
+          "role": "Saklar elektronik untuk mengontrol daya hidup/mati perangkat listrik (lampu utama, AC, kipas, stopkontak)."
+        }
+      ]
+    },
+    {
+      "id": "B4",
+      "name": "Gateway Komunikasi",
+      "category": "Networking",
+      "components": [
+        {
+          "name": "Wi-Fi Router / Hotspot",
+          "protocol": "TCP/IP @ 2.4 GHz",
+          "role": "Menyediakan jalur akses nirkabel bagi ESP32 untuk menghubungkannya ke cloud internet."
+        }
+      ]
+    },
+    {
+      "id": "B5",
+      "name": "Backend Application Server",
+      "category": "Software - Server",
+      "components": [
+        {
+          "name": "Express.js REST API Server",
+          "endpoint": "/api/esp32/sync",
+          "role": "Pusat sinkronisasi data (state gateway). Menerima telemetri dari ESP32, menyimpan states relay sementara, dan memberikan respons kontrol relay terbaru ke ESP32."
+        }
+      ]
+    },
+    {
+      "id": "B6",
+      "name": "Interaksi Pengguna (User Interfaces)",
+      "category": "Software - Clients",
+      "components": [
+        {
+          "name": "Web React Dashboard Application",
+          "techStack": ["React v18", "Vite", "Tailwind CSS", "Recharts"],
+          "role": "Antarmuka grafis pengguna (GUI) untuk memantau grafik sensor secara langsung (real-time) dan memutar/mengaktifkan tombol kontrol sakelar relay."
+        },
+        {
+          "name": "Telegram Bot (Cloud API)",
+          "role": "Platform perpesanan nirkabel untuk mengirimkan laporan status otomatis dan menerima instruksi perintah cepat dari jarak jauh (seperti /status, /r1_on)."
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "B1",
+      "to": "B2",
+      "type": "Hardware Bus",
+      "description": "Mengirim data analog/digital telemetri sensor DHT ke Pin GPIO 15 ESP32."
+    },
+    {
+      "from": "B2",
+      "to": "B3",
+      "type": "Digital Output GPIO",
+      "description": "Mengirim sinyal logika HIGH/LOW untuk menentukan status sakelar pada modul relay."
+    },
+    {
+      "from": "B2",
+      "to": "B4",
+      "type": "Wi-Fi Connection",
+      "description": "ESP32 berasosiasi dengan router lokal untuk mendapatkan alamat IP lokal."
+    },
+    {
+      "from": "B4",
+      "to": "B5",
+      "type": "HTTP API Request",
+      "description": "Mengirim payload JSON (POST) berisi telemetri & menerima payload kembalian (target relay state) dari Server REST API Express.js."
+    },
+    {
+      "from": "B4",
+      "to": "B6",
+      "type": "HTTPS Client-to-Bot Request",
+      "description": "Fungsi polling instan ESP32 ke Telegram Bot API untuk mengunduh pesan instruksi baru dan mengirimkan pembaruan laporan."
+    },
+    {
+      "from": "B5",
+      "to": "B6",
+      "type": "State Synchronization",
+      "description": "Sinkronisasi data langsung antara Express.js Server dengan React UI Web Dashboard melalui panggilan REST API internal."
+    }
+  ]
+}

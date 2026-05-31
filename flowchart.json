@@ -1,0 +1,205 @@
+{
+  "systemName": "Siri-IoT ESP32 Smart Home System",
+  "version": "2.0.0",
+  "description": "Flowchart alur kerja firmware ESP32 setelah optimasi memori (Firebase dilepas) dan inisialisasi boot aman.",
+  "nodes": [
+    {
+      "id": "N1",
+      "label": "Mulai (ESP32 Power On / Reset)",
+      "type": "Start",
+      "description": "Sistem dinyalakan atau melakukan reboot (SW_CPU_RESET)."
+    },
+    {
+      "id": "N2",
+      "label": "Inisialisasi GPIO & State Awal",
+      "type": "Process",
+      "description": "Mengatur mode Pin Relay (1, 2, 3, 4) sebagai OUTPUT dan mematikan semua relay secara lokal menggunakan stateRelayAll() tanpa trigger Telegram (mencegah semaphore null pointer crash)."
+    },
+    {
+      "id": "N3",
+      "label": "Inisialisasi Driver DHT",
+      "type": "Process",
+      "description": "Memulai modul dht.begin() untuk bersiap membaca suhu dan kelembaban ruangan."
+    },
+    {
+      "id": "N4",
+      "label": "Koneksi ke Wi-Fi",
+      "type": "Process",
+      "description": "Menghubungkan ke SSID & Password yang telah dikonfigurasi melalui WiFi.begin()."
+    },
+    {
+      "id": "N5",
+      "label": "Inisialisasi Telegram & Jalankan Kirim Bot",
+      "type": "Process",
+      "description": "Mengatur client.setInsecure() dan mengirimkan pesan Telegram pertama kalinya: 'Sistem Smart Home Siri-IoT ESP32 Aktif Terkoneksi!'."
+    },
+    {
+      "id": "N6",
+      "label": "Eksekusi Loop Utama (void loop)",
+      "type": "Process",
+      "description": "Memulai perputaran rutin task utama pada mikroprosesor."
+    },
+    {
+      "id": "N7",
+      "label": "Task 1: Apakah sudah lewat 5 detik?",
+      "type": "Decision",
+      "description": "Mengevaluasi selisih waktu pembacaan sensor DHT."
+    },
+    {
+      "id": "N8",
+      "label": "Baca Sensor & Tampilkan Telemetri",
+      "type": "Process",
+      "description": "Mengambil parameter suhu (temperature) dan kelembaban (humidity) dari sensor DHT fisik."
+    },
+    {
+      "id": "N9",
+      "label": "Task 2: Apakah sudah lewat 1 detik?",
+      "type": "Decision",
+      "description": "Mengevaluasi selisih waktu polling pesan Telegram."
+    },
+    {
+      "id": "N10",
+      "label": "Ambil & Analisis Pesan Telegram",
+      "type": "Process",
+      "description": "Fungsi bot.getUpdates() dijalankan untuk memeriksa apakah ada perintah baru (seperti /r1_on, /status, dll) lalu mengontrol status relay digital."
+    },
+    {
+      "id": "N11",
+      "label": "Task 3: Apakah sudah lewat 3 detik?",
+      "type": "Decision",
+      "description": "Mengevaluasi selisih waktu sinkronisasi data dengan dashboard utama."
+    },
+    {
+      "id": "N12",
+      "label": "Panggil syncWithServer()",
+      "type": "Process",
+      "description": "Memanggil HTTPClient untuk melakukan sinkronisasi dengan Web Dashboard."
+    },
+    {
+      "id": "N13",
+      "label": "Membuat Payload JSON",
+      "type": "Process",
+      "description": "Membungkus suhu, kelembaban, RSSI Wi-Fi, dan status terkini ke-4 relay ke dalam StaticJsonDocument."
+    },
+    {
+      "id": "N14",
+      "label": "Kirim HTTP POST",
+      "type": "Process",
+      "description": "Mengirimkan payload JSON ke server REST API via http.POST()."
+    },
+    {
+      "id": "N15",
+      "label": "Apakah Response HTTP Sukses (200 OK)?",
+      "type": "Decision",
+      "description": "Memeriksa apakah server membalas dengan status kode positif."
+    },
+    {
+      "id": "N16",
+      "label": "Sinkronisasikan State Relay Lokal",
+      "type": "Process",
+      "description": "Membaca target_relay dari respons JSON server, lalu mengubah kondisi fisik relay & menjalankan variasi sirkuit jika ada permintaan baru dari dashboard."
+    }
+  ],
+  "edges": [
+    {
+      "from": "N1",
+      "to": "N2",
+      "relation": "Inisialisasi Hardware"
+    },
+    {
+      "from": "N2",
+      "to": "N3",
+      "relation": "Inisialisasi Sensor"
+    },
+    {
+      "from": "N3",
+      "to": "N4",
+      "relation": "Mulai Koneksi Jaringan"
+    },
+    {
+      "from": "N4",
+      "to": "N5",
+      "relation": "Setelah Wi-Fi Terhubung (WL_CONNECTED)"
+    },
+    {
+      "from": "N5",
+      "to": "N6",
+      "relation": "Memasuki Siklus Loop"
+    },
+    {
+      "from": "N6",
+      "to": "N7",
+      "relation": "Rutinitas Sensor"
+    },
+    {
+      "from": "N7",
+      "to": "N8",
+      "relation": "Ya (Ubah last_time_reading)"
+    },
+    {
+      "from": "N7",
+      "to": "N9",
+      "relation": "Tidak / Setelah Pembacaan"
+    },
+    {
+      "from": "N8",
+      "to": "N9",
+      "relation": "Lanjut ke Task Telegram"
+    },
+    {
+      "from": "N9",
+      "to": "N10",
+      "relation": "Ya (Ubah last_time_bot)"
+    },
+    {
+      "from": "N9",
+      "to": "N11",
+      "relation": "Tidak / Setelah Polling"
+    },
+    {
+      "from": "N10",
+      "to": "N11",
+      "relation": "Lanjut ke Sinkronisasi Web"
+    },
+    {
+      "from": "N11",
+      "to": "N12",
+      "relation": "Ya"
+    },
+    {
+      "from": "N11",
+      "to": "N6",
+      "relation": "Tidak (Mengulang putaran Loop)"
+    },
+    {
+      "from": "N12",
+      "to": "N13",
+      "relation": "Persiapan Payload"
+    },
+    {
+      "from": "N13",
+      "to": "N14",
+      "relation": "Kirim via Wi-Fi"
+    },
+    {
+      "from": "N14",
+      "to": "N15",
+      "relation": "Tunggu Respons"
+    },
+    {
+      "from": "N15",
+      "to": "N16",
+      "relation": "Ya (Server merespons data valid)"
+    },
+    {
+      "from": "N15",
+      "to": "N6",
+      "relation": "Tidak / Gagal request (Kembali ke Loop)"
+    },
+    {
+      "from": "N16",
+      "to": "N6",
+      "relation": "Selesai sinkronisasi, kembali berputar"
+    }
+  ]
+}
